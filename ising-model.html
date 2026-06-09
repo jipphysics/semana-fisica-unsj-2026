@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Ising Model Simulation</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+            color: #f5c2e7;
+        }
+
+        p {
+            margin-top: 0;
+            color: #a6adc8;
+            font-size: 0.9rem;
+        }
+
+        .container {
+            background-color: #313244;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        canvas {
+            border: 4px solid #45475a;
+            border-radius: 6px;
+            image-rendering: pixelated; /* Keeps the grid sharp when scaled */
+            width: 400px;
+            height: 400px;
+        }
+
+        .controls {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .slider-group label {
+            flex: 1;
+            font-weight: bold;
+        }
+
+        .slider-group input {
+            flex: 2;
+            accent-color: #f5c2e7;
+        }
+
+        .slider-value {
+            width: 50px;
+            text-align: right;
+            font-family: monospace;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+            background-color: #11111b;
+            color: #cdd6f4;
+        }
+
+        button:hover {
+            background-color: #585b70;
+        }
+
+        #startBtn {
+            background-color: #a6e3a1;
+            color: #11111b;
+        }
+
+        #startBtn:hover {
+            background-color: #94e2d5;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>2D Ising Model</h1>
+    <p>Watch ferromagnetism emerge at or below the Critical Temperature ($T_c \approx 2.27$)</p>
+
+    <div class="container">
+        <canvas id="isingCanvas" width="200" height="200"></canvas>
+        
+        <div class="controls">
+            <div class="slider-group">
+                <label for="tempSlider">Temperature (T):</label>
+                <input type="range" id="tempSlider" min="0.1" max="5.0" step="0.05" value="2.27">
+                <span id="tempValue" class="slider-value">2.27</span>
+            </div>
+
+            <div class="btn-group">
+                <button id="startBtn">Pause</button>
+                <button id="resetRandBtn">Randomize</button>
+                <button id="resetUpBtn">Align Up</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('isingCanvas');
+        const ctx = canvas.getContext('2d');
+        const tempSlider = document.getElementById('tempSlider');
+        const tempValue = document.getElementById('tempValue');
+        const startBtn = document.getElementById('startBtn');
+        const resetRandBtn = document.getElementById('resetRandBtn');
+        const resetUpBtn = document.getElementById('resetUpBtn');
+
+        const N = canvas.width; // 200x200 grid
+        let array = new Int8Array(N * N);
+        let T = parseFloat(tempSlider.value);
+        let isRunning = true;
+
+        // Image data buffer for fast pixel rendering
+        const imgData = ctx.createImageData(N, N);
+        const data = imgData.data;
+
+        // Color Constants (RGBA)
+        //const COLOR_UP = [245, 194, 231, 255];   // Pastel Pink
+        //const COLOR_DOWN = [30, 30, 46, 255];    // Dark Slate
+        const COLOR_UP = [255, 0, 0, 255];   // Pastel Pink
+        const COLOR_DOWN = [0, 0, 255, 255];    // Dark Slate
+
+        function initLattice(random = true) {
+            for (let i = 0; i < array.length; i++) {
+                array[i] = random ? (Math.random() < 0.5 ? 1 : -1) : 1;
+            }
+            updateCanvas();
+        }
+
+        function updateCanvas() {
+            for (let i = 0; i < array.length; i++) {
+                const idx = i * 4;
+                const color = array[i] === 1 ? COLOR_UP : COLOR_DOWN;
+                data[idx]     = color[0];
+                data[idx + 1] = color[1];
+                data[idx + 2] = color[2];
+                data[idx + 3] = color[3];
+            }
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        // Metropolis Algorithm step
+        function metropolisStep() {
+            // Perform N*N flips per frame to get visible evolution
+            const stepsPerFrame = N * N; 
+            
+            for (let k = 0; k < stepsPerFrame; k++) {
+                const x = Math.floor(Math.random() * N);
+                const y = Math.floor(Math.random() * N);
+                const idx = y * N + x;
+
+                // Periodic boundary conditions (wrapping around edges)
+                const left  = y * N + ((x - 1 + N) % N);
+                const right = y * N + ((x + 1) % N);
+                const up    = ((y - 1 + N) % N) * N + x;
+                const down  = ((y + 1) % N) * N + x;
+
+                const spin = array[idx];
+                const neighborsSum = array[left] + array[right] + array[up] + array[down];
+                
+                // Change in energy ΔE if we flip this spin (assuming J = 1)
+                const dE = 2 * spin * neighborsSum;
+
+                // Metropolis condition
+                if (dE <= 0 || Math.random() < Math.exp(-dE / T)) {
+                    array[idx] = -spin;
+                }
+            }
+        }
+
+        function loop() {
+            if (isRunning) {
+                metropolisStep();
+                updateCanvas();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        // Event Listeners
+        tempSlider.addEventListener('input', (e) => {
+            T = parseFloat(e.target.value);
+            tempValue.textContent = T.toFixed(2);
+        });
+
+        startBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            startBtn.textContent = isRunning ? "Pause" : "Start";
+            startBtn.style.backgroundColor = isRunning ? "#a6e3a1" : "#f9e2af";
+        });
+
+        resetRandBtn.addEventListener('click', () => initLattice(true));
+        resetUpBtn.addEventListener('click', () => initLattice(false));
+
+        // Start the simulation
+        initLattice(true);
+        loop();
+    </script>
+</body>
+</html>

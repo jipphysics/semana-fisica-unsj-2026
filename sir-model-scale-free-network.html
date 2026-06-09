@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIR Propagation on a Barabási-Albert Tree (m=1)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #ef4444; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #1e2235;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #2e344e;
+        }
+
+        canvas {
+            background-color: #070a13;
+            border-radius: 12px;
+            border: 2px solid #2e344e;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 300px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .metric-card {
+            background-color: #070a13;
+            padding: 8px 4px;
+            border-radius: 8px;
+            text-align: center;
+            border-top: 4px solid #38bdf8;
+        }
+        .metric-card.inf { border-top-color: #ef4444; }
+        .metric-card.rec { border-top-color: #64748b; }
+
+        .metric-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: bold; }
+        .metric-value { font-family: monospace; font-size: 1.1rem; font-weight: bold; color: #f1f5f9; margin-top: 2px; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            background: #0b0f19;
+            height: 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            accent-color: #ef4444;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 5px;
+        }
+
+        .row-btns {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #2e344e;
+            color: #f1f5f9;
+        }
+
+        button:hover { background-color: #3e4668; }
+        #infectBtn { background-color: #ef4444; color: #ffffff; }
+        #infectBtn:hover { background-color: #f87171; }
+        #resetBtn { background-color: #3b82f6; color: #ffffff; }
+        #resetBtn:hover { background-color: #60a5fa; }
+    </style>
+</head>
+<body>
+
+    <h1>SIR Epidemic on a Scale-Free Tree</h1>
+    <p>Simulating viral contagion spreading across a Barabási-Albert network ($m=1$). Watch how infecting a massive central hub triggers systemic collapse, while starting on a peripheral leaf often isolates the threat.</p>
+
+    <div class="container">
+        <canvas id="networkCanvas" width="520" height="420"></canvas>
+        
+        <div class="panel">
+            <div class="stats-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Susceptible</div>
+                    <div id="sVal" class="metric-value" style="color: #38bdf8;">0</div>
+                </div>
+                <div class="metric-card inf">
+                    <div class="metric-label">Infected</div>
+                    <div id="iVal" class="metric-value" style="color: #ef4444;">0</div>
+                </div>
+                <div class="metric-card rec">
+                    <div class="metric-label">Recovered</div>
+                    <div id="rVal" class="metric-value" style="color: #64748b;">0</div>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #2e344e; margin: 2px 0;">
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="betaSlider">Infection Probability (β):</label>
+                    <span id="betaVal" style="font-family: monospace;">0.30</span>
+                </div>
+                <input type="range" id="betaSlider" min="0.05" max="1.0" step="0.05" value="0.30">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="gammaSlider">Recovery Probability (γ):</label>
+                    <span id="gammaVal" style="font-family: monospace;">0.08</span>
+                </div>
+                <input type="range" id="gammaSlider" min="0.01" max="0.5" step="0.01" value="0.08">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="nodesSlider">Network Population (N):</label>
+                    <span id="nodesVal" style="font-family: monospace;">120</span>
+                </div>
+                <input type="range" id="nodesSlider" min="40" max="250" step="10" value="120">
+            </div>
+
+            <div class="btn-group">
+                <button id="infectBtn">Patient Zero: Infect Random Node</button>
+                <div class="row-btns">
+                    <button id="pauseBtn">Pause Physics</button>
+                    <button id="resetBtn">Generate New Tree</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Target Hooks
+        const betaSlider = document.getElementById('betaSlider');
+        const betaVal = document.getElementById('betaVal');
+        const gammaSlider = document.getElementById('gammaSlider');
+        const gammaVal = document.getElementById('gammaVal');
+        const nodesSlider = document.getElementById('nodesSlider');
+        const nodesVal = document.getElementById('nodesVal');
+        
+        const sDisplay = document.getElementById('sVal');
+        const iDisplay = document.getElementById('iVal');
+        const rDisplay = document.getElementById('rVal');
+        
+        const infectBtn = document.getElementById('infectBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        const CX = canvas.width / 2;
+        const CY = canvas.height / 2;
+
+        // Model Constants & Configurations
+        let beta = parseFloat(betaSlider.value);
+        let gamma = parseFloat(gammaSlider.value);
+        let targetN = parseInt(nodesSlider.value);
+        
+        let nodes = [];
+        let edges = [];
+        let isPhysicsRunning = true;
+        let lastEpidemicTick = 0;
+        const epidemicInterval = 120; // Time step delay (ms) for viral updates
+
+        // Rigid Convergent Force Directed Physics Constants
+        const REPULSION = 1400;
+        const SOFTENING = 450;
+        const SPRING_K = 0.06;
+        const SPRING_LENGTH = 22;
+        const GRAVITY = 0.035;
+        const DAMPING = 0.70;
+        const MAX_VELOCITY = 3.0;
+
+        class Node {
+            constructor(id, x, y) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.degree = 0;
+                this.neighbors = [];
+                this.state = 'S'; // 'S', 'I', or 'R'
+            }
+        }
+
+        // Build entire Barabási-Albert model with m=1 instantly
+        function generateBATree() {
+            nodes = [];
+            edges = [];
+
+            // 1. Initialize Seed (m=1 structural base requires 2 linked items)
+            nodes.push(new Node(0, CX - 15, CY));
+            nodes.push(new Node(1, CX + 15, CY));
+            edges.push({ source: nodes[0], target: nodes[1] });
+            nodes[0].degree = 1; nodes[1].degree = 1;
+            nodes[0].neighbors.push(nodes[1]);
+            nodes[1].neighbors.push(nodes[0]);
+
+            // 2. Grow scale-free network up to target N
+            for (let i = 2; i < targetN; i++) {
+                let totalDegree = 0;
+                for (let j = 0; j < nodes.length; j++) {
+                    totalDegree += nodes[j].degree;
+                }
+
+                // Preferential selection rule selection mechanics
+                let roll = Math.random() * totalDegree;
+                let runningSum = 0;
+                let targetNode = nodes[0];
+
+                for (let j = 0; j < nodes.length; j++) {
+                    runningSum += nodes[j].degree;
+                    if (roll <= runningSum) {
+                        targetNode = nodes[j];
+                        break;
+                    }
+                }
+
+                // Spawn with a tiny positional offset relative to its anchor target parent
+                const offsetAngle = Math.random() * Math.PI * 2;
+                const rx = targetNode.x + Math.cos(offsetAngle) * 15;
+                const ry = targetNode.y + Math.sin(offsetAngle) * 15;
+                
+                const newNode = new Node(i, rx, ry);
+                
+                // Track topological pointers
+                nodes.push(newNode);
+                edges.push({ source: newNode, target: targetNode });
+                
+                newNode.degree++;
+                targetNode.degree++;
+                newNode.neighbors.push(targetNode);
+                targetNode.neighbors.push(newNode);
+            }
+            updateDashboardMetrics();
+        }
+
+        function infectRandomNode() {
+            if (nodes.length === 0) return;
+            // Select entirely uniform candidate from full pool
+            const targetIdx = Math.floor(Math.random() * nodes.length);
+            
+            // Clean slate recovery reset to avoid visual overlap
+            for(let n of nodes) n.state = 'S';
+
+            nodes[targetIdx].state = 'I';
+            updateDashboardMetrics();
+        }
+
+        function runEpidemicStep() {
+            let nextStates = nodes.map(n => n.state);
+
+            for (let i = 0; i < nodes.length; i++) {
+                const u = nodes[i];
+                if (u.state !== 'I') continue;
+
+                // 1. Transmission processing stage
+                for (let neighbor of u.neighbors) {
+                    if (neighbor.state === 'S') {
+                        if (Math.random() < beta) {
+                            nextStates[neighbor.id] = 'I';
+                        }
+                    }
+                }
+
+                // 2. Recovery processing stage
+                if (Math.random() < gamma) {
+                    nextStates[u.id] = 'R';
+                }
+            }
+
+            // Sync structural states updates together
+            for (let i = 0; i < nodes.length; i++) {
+                nodes[i].state = nextStates[i];
+            }
+            updateDashboardMetrics();
+        }
+
+        function updatePhysics() {
+            // Repulsion Physics
+            for (let i = 0; i < nodes.length; i++) {
+                const n1 = nodes[i];
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const n2 = nodes[j];
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distSq = dx * dx + dy * dy;
+                    const dist = Math.sqrt(distSq) + 0.1;
+
+                    const force = REPULSION / (distSq + SOFTENING);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+
+                    n1.vx -= fx; n1.vy -= fy;
+                    n2.vx += fx; n2.vy += fy;
+                }
+            }
+
+            // Hooke's Elastic Attraction Layout 
+            for (let edge of edges) {
+                const n1 = edge.source;
+                const n2 = edge.target;
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+
+                const displacement = dist - SPRING_LENGTH;
+                const force = displacement * SPRING_K;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                n1.vx += fx; n1.vy += fy;
+                n2.vx -= fx; n2.vy -= fy;
+            }
+
+            // Core Integration
+            for (let n of nodes) {
+                n.vx += (CX - n.x) * GRAVITY;
+                n.vy += (CY - n.y) * GRAVITY;
+
+                n.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vx));
+                n.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vy));
+
+                n.x += n.vx;
+                n.y += n.vy;
+
+                n.vx *= DAMPING;
+                n.vy *= DAMPING;
+            }
+        }
+
+        function updateDashboardMetrics() {
+            let sCount = 0, iCount = 0, rCount = 0;
+            for (let n of nodes) {
+                if (n.state === 'S') sCount++;
+                else if (n.state === 'I') iCount++;
+                else if (n.state === 'R') rCount++;
+            }
+            sDisplay.textContent = sCount;
+            iDisplay.textContent = iCount;
+            rDisplay.textContent = rCount;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Render Edges
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            for (let edge of edges) {
+                ctx.moveTo(edge.source.x, edge.source.y);
+                ctx.lineTo(edge.target.x, edge.target.y);
+            }
+            ctx.stroke();
+
+            // Render Nodes
+            for (let n of nodes) {
+                // Size scales with connectivity footprint
+                const radius = 4.5 + Math.sqrt(n.degree) * 2.5;
+                
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+
+                // Mapped execution color styles depending on individual status block
+                if (n.state === 'I') {
+                    ctx.fillStyle = "#ef4444";
+                    ctx.shadowBlur = 14;
+                    ctx.shadowColor = "#ef4444";
+                } else if (n.state === 'R') {
+                    ctx.fillStyle = "#64748b";
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.fillStyle = "#38bdf8";
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.fill();
+                ctx.strokeStyle = "#070a13";
+                ctx.lineWidth = 1.8;
+                ctx.shadowBlur = 0; // Instantly clean render frame pipeline tracking 
+                ctx.stroke();
+            }
+        }
+
+        function loop(timestamp) {
+            if (isPhysicsRunning) {
+                updatePhysics();
+            }
+
+            // Independent steady timer tracking for virus updates
+            if (timestamp - lastEpidemicTick > epidemicInterval) {
+                runEpidemicStep();
+                lastEpidemicTick = timestamp;
+            }
+
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // --- Controller Interface Configurations ---
+        betaSlider.addEventListener('input', (e) => {
+            beta = parseFloat(e.target.value);
+            betaVal.textContent = beta.toFixed(2);
+        });
+
+        gammaSlider.addEventListener('input', (e) => {
+            gamma = parseFloat(e.target.value);
+            gammaVal.textContent = gamma.toFixed(2);
+        });
+
+        nodesSlider.addEventListener('input', (e) => {
+            targetN = parseInt(e.target.value);
+            nodesVal.textContent = targetN;
+            generateBATree();
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isPhysicsRunning = !isPhysicsRunning;
+            pauseBtn.textContent = isPhysicsRunning ? "Pause Physics" : "Resume Physics";
+            pauseBtn.style.backgroundColor = isPhysicsRunning ? "#2e344e" : "#10b981";
+        });
+
+        infectBtn.addEventListener('click', infectRandomNode);
+        resetBtn.addEventListener('click', generateBATree);
+
+        // Core Init
+        generateBATree();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

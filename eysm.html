@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extended Yard-Sale Model: Phase Transition</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #10b981; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #1e2235;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #2e344e;
+        }
+
+        canvas {
+            background-color: #070a13;
+            border-radius: 12px;
+            border: 2px solid #2e344e;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 300px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-card {
+            background-color: #070a13;
+            padding: 10px;
+            border-radius: 8px;
+            border-top: 3px solid #10b981;
+            text-align: center;
+        }
+        .metric-card.gini { border-top-color: #f59e0b; }
+
+        .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+        .metric-value { font-family: monospace; font-size: 1.2rem; font-weight: bold; color: #f1f5f9; margin-top: 2px; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        .info-box {
+            background-color: #070a13;
+            padding: 10px;
+            border-radius: 8px;
+            border-left: 3px solid #3b82f6;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            background: #0b0f19;
+            height: 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            accent-color: #10b981;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        button {
+            flex: 1;
+            padding: 11px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #2e344e;
+            color: #f1f5f9;
+        }
+
+        button:hover { background-color: #3e4668; }
+        #resetBtn { background-color: #10b981; color: #070a13; }
+        #resetBtn:hover { background-color: #34d399; }
+    </style>
+</head>
+<body>
+
+    <h1>Extended Yard-Sale Model: Phase Transition</h1>
+    <p>Watch how the ratio of taxation to wealth bias controls structural macroeconomics. Below $\chi/\zeta = 1$, the system condenses completely. Above $1$, inequality stabilizes.</p>
+
+    <div class="container">
+        <canvas id="chartCanvas" width="520" height="380"></canvas>
+        
+        <div class="panel">
+            <div class="stats-grid">
+                <div class="metric-card gini">
+                    <div class="metric-label">Gini Coefficient</div>
+                    <div id="giniVal" class="metric-value" style="color: #f59e0b;">0.000</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Top 10% Share</div>
+                    <div id="topShareVal" class="metric-value">10.0%</div>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #2e344e; margin: 2px 0;">
+
+            <div class="info-box">
+                <b>Fixed Market Bias (ζ):</b> 0.005<br>
+                <span style="color: #64748b;">Gives wealthy agents a slight structural edge during trades.</span>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="ratioSlider"><b>Ratio (χ / ζ):</b></label>
+                    <span id="ratioVal" style="font-family: monospace; font-weight: bold; color: #10b981;">1.5</span>
+                </div>
+                <input type="range" id="ratioSlider" min="0" max="100" step="0.1" value="1.5">
+            </div>
+
+            <div class="info-box" style="border-left-color: #a855f7;">
+                <b>Effective Tax Rate (χ):</b> <span id="effectiveTaxVal" style="font-family: monospace; color: #a855f7; font-weight: bold;">0.75%</span>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="betaSlider">Trade Risk Step (β):</label>
+                    <span id="betaVal" style="font-family: monospace;">15%</span>
+                </div>
+                <input type="range" id="betaSlider" min="5" max="40" step="1" value="15">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="agentsSlider">Population Size (N):</label>
+                    <span id="agentsVal" style="font-family: monospace;">250</span>
+                </div>
+                <input type="range" id="agentsSlider" min="100" max="500" step="25" value="250">
+            </div>
+
+            <div class="btn-group">
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Reset Economy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('chartCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Form Handles
+        const ratioSlider = document.getElementById('ratioSlider');
+        const ratioVal = document.getElementById('ratioVal');
+        const effectiveTaxVal = document.getElementById('effectiveTaxVal');
+        const betaSlider = document.getElementById('betaSlider');
+        const betaVal = document.getElementById('betaVal');
+        const agentsSlider = document.getElementById('agentsSlider');
+        const agentsVal = document.getElementById('agentsVal');
+        
+        const giniDisplay = document.getElementById('giniVal');
+        const topShareDisplay = document.getElementById('topShareVal');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // Core Physics Setup
+        const ZETA = 0.005; // Fixed Systemic Advantage Bias
+        let N = parseInt(agentsSlider.value);
+        let beta = parseInt(betaSlider.value) / 100;
+        
+        let ratio = parseFloat(ratioSlider.value);
+        let chi = ratio * ZETA; // Tax rate dynamically scaled via ratio
+
+        let wealth = [];
+        const INITIAL_WEALTH = 100;
+        let isRunning = true;
+
+        function initEconomy() {
+            wealth = new Array(N).fill(INITIAL_WEALTH);
+        }
+
+        function updateParameters() {
+            ratio = parseFloat(ratioSlider.value);
+            chi = ratio * ZETA;
+            
+            ratioVal.textContent = ratio.toFixed(1);
+            effectiveTaxVal.textContent = (chi * 100).toFixed(2) + "%";
+            
+            // Highlight color warning if ratio drops into the oligarchy zone
+            if (ratio < 1.0) {
+                ratioVal.style.color = "#ef4444";
+            } else {
+                ratioVal.style.color = "#10b981";
+            }
+        }
+
+        function runSimulationSteps() {
+            // Execute N interactions per frame loop 
+            for (let step = 0; step < N; step++) {
+                let i = Math.floor(Math.random() * N);
+                let j = Math.floor(Math.random() * N);
+                while (i === j) j = Math.floor(Math.random() * N);
+
+                let wI = wealth[i];
+                let wJ = wealth[j];
+                let dW = beta * Math.min(wI, wJ);
+
+                let pI = 0.5;
+                if (wI !== wJ) {
+                    let advantage = (wI - wJ) / (wI + wJ);
+                    pI = 0.5 + ZETA * advantage;
+                }
+
+                if (Math.random() < pI) {
+                    wealth[i] += dW;
+                    wealth[j] -= dW;
+                } else {
+                    wealth[i] -= dW;
+                    wealth[j] += dW;
+                }
+            }
+
+            // Universal Flat Wealth Tax and Equal Redistribution Step
+            if (chi > 0) {
+                let taxPool = 0;
+                for (let i = 0; i < N; i++) {
+                    let taxCollected = wealth[i] * chi;
+                    wealth[i] -= taxCollected;
+                    taxPool += taxCollected;
+                }
+                let dividend = taxPool / N;
+                for (let i = 0; i < N; i++) {
+                    wealth[i] += dividend;
+                }
+            }
+        }
+
+        function calculateMetrics(sortedDesc) {
+            let sortedAsc = [...sortedDesc].reverse();
+            let num = 0;
+            let den = 0;
+            for (let i = 0; i < N; i++) {
+                num += (2 * (i + 1) - N - 1) * sortedAsc[i];
+                den += sortedAsc[i];
+            }
+            let gini = den === 0 ? 0 : num / (N * den);
+
+            let top10Count = Math.max(1, Math.floor(N * 0.1));
+            let top10Sum = 0;
+            for (let i = 0; i < top10Count; i++) {
+                top10Sum += sortedDesc[i];
+            }
+            let topShare = den === 0 ? 0 : (top10Sum / den) * 100;
+
+            return { gini, topShare };
+        }
+
+        function drawRankPlot(sortedWealth) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const padding = { top: 30, right: 20, bottom: 40, left: 55 };
+            const graphWidth = canvas.width - padding.left - padding.right;
+            const graphHeight = canvas.height - padding.top - padding.bottom;
+
+            let maxW = Math.max(...sortedWealth);
+            let yMax = Math.max(INITIAL_WEALTH * 2, maxW * 1.05);
+
+            // Draw Background Grids
+            ctx.strokeStyle = "#1e2235";
+            ctx.lineWidth = 1;
+            ctx.fillStyle = "#64748b";
+            ctx.font = "11px monospace";
+            ctx.textAlign = "right";
+
+            const lines = 4;
+            for (let i = 0; i <= lines; i++) {
+                let yVal = (yMax / lines) * i;
+                let canvasY = padding.top + graphHeight - (yVal / yMax) * graphHeight;
+                
+                ctx.beginPath();
+                ctx.moveTo(padding.left, canvasY);
+                ctx.lineTo(padding.left + graphWidth, canvasY);
+                ctx.stroke();
+
+                ctx.fillText(Math.round(yVal), padding.left - 8, canvasY + 4);
+            }
+
+            // Draw Perfect Baseline Equality Dotted Line
+            let equalityY = padding.top + graphHeight - (INITIAL_WEALTH / yMax) * graphHeight;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, equalityY);
+            ctx.lineTo(padding.left + graphWidth, equalityY);
+            ctx.stroke();
+            ctx.setLineDash([]); 
+
+            // Text Footers
+            ctx.fillStyle = "#64748b";
+            ctx.textAlign = "center";
+            ctx.fillText("Richest Member", padding.left + 50, padding.top + graphHeight + 20);
+            ctx.fillText(`Poorest (Rank ${N})`, padding.left + graphWidth - 60, padding.top + graphHeight + 20);
+
+            // Draw Path Line
+            ctx.beginPath();
+            for (let i = 0; i < N; i++) {
+                let canvasX = padding.left + (i / (N - 1)) * graphWidth;
+                let canvasY = padding.top + graphHeight - (sortedWealth[i] / yMax) * graphHeight;
+
+                if (i === 0) ctx.moveTo(canvasX, canvasY);
+                else ctx.lineTo(canvasX, canvasY);
+            }
+
+            // Adjust stroke color based on economic health status dynamically
+            ctx.strokeStyle = (ratio < 1.0) ? "#ef4444" : "#10b981";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Gradient Fill beneath curve
+            ctx.lineTo(padding.left + graphWidth, padding.top + graphHeight);
+            ctx.lineTo(padding.left, padding.top + graphHeight);
+            let grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + graphHeight);
+            
+            if (ratio < 1.0) {
+                grad.addColorStop(0, "rgba(239, 68, 68, 0.18)");
+            } else {
+                grad.addColorStop(0, "rgba(16, 185, 129, 0.18)");
+            }
+            grad.addColorStop(1, "rgba(16, 185, 129, 0.00)");
+            ctx.fillStyle = grad;
+            ctx.fill();
+        }
+
+        function loop() {
+            if (isRunning) {
+                runSimulationSteps();
+            }
+
+            let sortedWealth = [...wealth].sort((a, b) => b - a);
+            let metrics = calculateMetrics(sortedWealth);
+            
+            giniDisplay.textContent = metrics.gini.toFixed(3);
+            topShareDisplay.textContent = metrics.topShare.toFixed(1) + "%";
+
+            drawRankPlot(sortedWealth);
+            requestAnimationFrame(loop);
+        }
+
+        // --- Event Listeners ---
+        ratioSlider.addEventListener('input', updateParameters);
+        
+        betaSlider.addEventListener('input', (e) => {
+            beta = parseInt(e.target.value) / 100;
+            betaVal.textContent = e.target.value + "%";
+        });
+
+        agentsSlider.addEventListener('input', (e) => {
+            N = parseInt(e.target.value);
+            agentsVal.textContent = N;
+            initEconomy();
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            pauseBtn.textContent = isRunning ? "Pause" : "Resume";
+            pauseBtn.style.backgroundColor = isRunning ? "#2e344e" : "#10b981";
+            pauseBtn.style.color = isRunning ? "#f1f5f9" : "#070a13";
+        });
+
+        resetBtn.addEventListener('click', initEconomy);
+
+        // Bootstrap Core Execution
+        updateParameters();
+        initEconomy();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

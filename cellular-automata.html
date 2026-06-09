@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyclic Cellular Automata Simulation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #f43f5e; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #1e2235;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #2e344e;
+        }
+
+        canvas {
+            background-color: #000000;
+            border-radius: 8px;
+            border: 2px solid #2e344e;
+            image-rendering: pixelated;
+            width: 400px;
+            height: 400px;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 280px;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            background: #0b0f19;
+            color: #f1f5f9;
+            border: 1px solid #2e344e;
+            padding: 6px;
+            border-radius: 6px;
+            accent-color: #f43f5e;
+            box-sizing: border-box;
+        }
+
+        input[type="range"] {
+            height: 6px;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #2e344e;
+            color: #f1f5f9;
+        }
+
+        button:hover { background-color: #3e4668; }
+        #pauseBtn { background-color: #f43f5e; color: #ffffff; }
+        #pauseBtn:hover { background-color: #fb7185; }
+    </style>
+</head>
+<body>
+
+    <h1>Cyclic Cellular Automata</h1>
+    <p>Spontaneous, self-organizing crystal wave fronts. Cells continuously search for their sequential successor state among their neighborhood to advance their internal clock cycle.</p>
+
+    <div class="container">
+        <canvas id="caCanvas" width="200" height="200"></canvas>
+        
+        <div class="panel">
+            <div class="slider-group">
+                <label class="slider-header">Ruleset Presets</label>
+                <select id="presetSelect">
+                    <option value="spirals">Perfect Griffeath Spirals</option>
+                    <option value="maze">Lattice Maze</option>
+                    <option value="turbulence">High Chaos Turbulence</option>
+                    <option value="quads">Blocky Quasi-Crystals</option>
+                </select>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #2e344e; margin: 5px 0;">
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="statesSlider">Number of States (N):</label>
+                    <span id="statesVal" style="font-family: monospace;">14</span>
+                </div>
+                <input type="range" id="statesSlider" min="2" max="31" step="1" value="14">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="thresholdSlider">Advance Threshold (T):</label>
+                    <span id="thresholdVal" style="font-family: monospace;">1</span>
+                </div>
+                <input type="range" id="thresholdSlider" min="1" max="8" step="1" value="1">
+            </div>
+
+            <div class="slider-group">
+                <label class="slider-header">Neighborhood Geometry</label>
+                <select id="neighborhoodSelect">
+                    <option value="moore">Moore (8 Neighbors)</option>
+                    <option value="vonneumann">Von Neumann (4 Neighbors)</option>
+                </select>
+            </div>
+
+            <div class="btn-group">
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Randomize Soup</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('caCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Target Components
+        const presetSelect = document.getElementById('presetSelect');
+        const statesSlider = document.getElementById('statesSlider');
+        const statesVal = document.getElementById('statesVal');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const thresholdVal = document.getElementById('thresholdVal');
+        const neighborhoodSelect = document.getElementById('neighborhoodSelect');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        const DIM = canvas.width; // 200x200 grid
+        let N = parseInt(statesSlider.value);
+        let T = parseInt(thresholdSlider.value);
+        let neighborhood = neighborhoodSelect.value;
+
+        let grid = new Int32Array(DIM * DIM);
+        let nextGrid = new Int32Array(DIM * DIM);
+        let colorMap = []; // Precomputed RGBA arrays for max rendering performance
+        let isRunning = true;
+
+        const imgData = ctx.createImageData(DIM, DIM);
+        const buffer = imgData.data;
+
+        // Presets configuration dictionary
+        const presets = {
+            spirals: { n: 14, t: 1, geo: 'moore' },
+            maze: { n: 8, t: 1, geo: 'vonneumann' },
+            turbulence: { n: 4, t: 1, geo: 'moore' },
+            quads: { n: 16, t: 3, geo: 'moore' }
+        };
+
+        function generateColorPalette() {
+            colorMap = [];
+            for (let i = 0; i < N; i++) {
+                // Generates a clean, wrapping HSL rainbow mapped across N states
+                const hue = (i / N) * 360;
+                colorMap.push(hslToRgb(hue, 90, 55));
+            }
+        }
+
+        // Fast helper tool converting HSL values to native raw integer RGB array blocks
+        function hslToRgb(h, s, l) {
+            s /= 100; l /= 100;
+            const k = n => (n + h / 30) % 12;
+            const a = s * Math.min(l, 1 - l);
+            const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+            return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
+        }
+
+        function randomSoup() {
+            for (let i = 0; i < grid.length; i++) {
+                grid[i] = Math.floor(Math.random() * N);
+            }
+        }
+
+        function applyPreset(key) {
+            const p = presets[key];
+            N = p.n; T = p.t; neighborhood = p.geo;
+
+            statesSlider.value = N; statesVal.textContent = N;
+            thresholdSlider.value = T; thresholdVal.textContent = T;
+            neighborhoodSelect.value = neighborhood;
+
+            generateColorPalette();
+            randomSoup();
+        }
+
+        function stepSimulation() {
+            const MooreOffsets = [
+                -1, -1,  0, -1,  1, -1,
+                -1,  0,          1,  0,
+                -1,  1,  0,  1,  1,  1
+            ];
+            
+            const VonNeumannOffsets = [
+                 0, -1,
+                -1,  0,  1,  0,
+                 0,  1
+            ];
+
+            const offsets = (neighborhood === 'moore') ? MooreOffsets : VonNeumannOffsets;
+            const offsetLength = offsets.length;
+
+            for (let y = 0; y < DIM; y++) {
+                const yTarget = y * DIM;
+                for (let x = 0; x < DIM; x++) {
+                    const idx = yTarget + x;
+                    const currentState = grid[idx];
+                    const targetNextState = (currentState + 1) % N;
+                    let matchCount = 0;
+
+                    // Scan neighboring vectors (with toroidal/wrapping edge boundaries)
+                    for (let i = 0; i < offsetLength; i += 2) {
+                        const nx = (x + offsets[i] + DIM) % DIM;
+                        const ny = (y + offsets[i+1] + DIM) % DIM;
+                        
+                        if (grid[ny * DIM + nx] === targetNextState) {
+                            matchCount++;
+                            if (matchCount >= T) break; // Break early once threshold condition met
+                        }
+                    }
+
+                    nextGrid[idx] = (matchCount >= T) ? targetNextState : currentState;
+                }
+            }
+
+            // Swap buffer pointers
+            let temp = grid;
+            grid = nextGrid;
+            nextGrid = temp;
+        }
+
+        function draw() {
+            let pixIdx = 0;
+            for (let i = 0; i < grid.length; i++) {
+                const rgb = colorMap[grid[i]];
+                buffer[pixIdx++] = rgb[0]; // Red
+                buffer[pixIdx++] = rgb[1]; // Green
+                buffer[pixIdx++] = rgb[2]; // Blue
+                buffer[pixIdx++] = 255;    // Alpha
+            }
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        function loop() {
+            if (isRunning) {
+                stepSimulation();
+                draw();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        // --- Event Listeners ---
+        presetSelect.addEventListener('change', (e) => applyPreset(e.target.value));
+
+        statesSlider.addEventListener('input', (e) => {
+            N = parseInt(e.target.value);
+            statesVal.textContent = N;
+            generateColorPalette();
+            randomSoup();
+        });
+
+        thresholdSlider.addEventListener('input', (e) => {
+            T = parseInt(e.target.value);
+            thresholdVal.textContent = T;
+        });
+
+        neighborhoodSelect.addEventListener('change', (e) => {
+            neighborhood = e.target.value;
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            pauseBtn.textContent = isRunning ? "Pause" : "Resume";
+            pauseBtn.style.backgroundColor = isRunning ? "#f43f5e" : "#10b981";
+        });
+
+        resetBtn.addEventListener('click', randomSoup);
+
+        // Bootstrap Core
+        applyPreset('spirals');
+        loop();
+    </script>
+</body>
+</html>

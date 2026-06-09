@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuramoto Model: Living Phase Oscillators</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #090d16;
+            color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #22d3ee; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #111827;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #1f2937;
+        }
+
+        canvas {
+            background-color: #030712;
+            border-radius: 12px;
+            border: 2px solid #1f2937;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 280px;
+        }
+
+        .metric-card {
+            background-color: #030712;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border-left: 4px solid #22d3ee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metric-label { font-size: 0.85rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+        .metric-value { font-family: monospace; font-size: 1.4rem; font-weight: bold; color: #22d3ee; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #9ca3af;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: #22d3ee;
+            background: #1f2937;
+            height: 6px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #1f2937;
+            color: #f8fafc;
+        }
+
+        button:hover { background-color: #374151; }
+        #primaryBtn { background-color: #22d3ee; color: #030712; }
+        #primaryBtn:hover { background-color: #67e8f9; }
+    </style>
+</head>
+<body>
+
+    <h1>Dynamic Kuramoto Oscillators</h1>
+    <p><b>Dynamic Engine:</b> Oscillators progress at a base common frequency. Their individual sizes and glow intensities fluctuate with their unique phase positions, producing an emergent collective "flash".</p>
+
+    <div class="container">
+        <canvas id="simCanvas" width="400" height="400"></canvas>
+        
+        <div class="panel">
+            <div class="metric-card">
+                <span class="metric-label">Sync Rate (R)</span>
+                <span id="orderParamDisplay" class="metric-value">0.00</span>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="couplingSlider">Coupling Strength (K):</label>
+                    <span id="couplingVal" style="font-family: monospace;">1.60</span>
+                </div>
+                <input type="range" id="couplingSlider" min="0.0" max="5.0" step="0.05" value="1.60">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="baseFreqSlider">Base Speed (ω_base):</label>
+                    <span id="baseFreqVal" style="font-family: monospace;">2.0</span>
+                </div>
+                <input type="range" id="baseFreqSlider" min="0.0" max="5.0" step="0.5" value="2.0">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="spreadSlider">Frequency Deviation (σ):</label>
+                    <span id="spreadVal" style="font-family: monospace;">0.60</span>
+                </div>
+                <input type="range" id="spreadSlider" min="0.0" max="2.0" step="0.05" value="0.60">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="countSlider">Population (N):</label>
+                    <span id="countVal" style="font-family: monospace;">250</span>
+                </div>
+                <input type="range" id="countSlider" min="10" max="500" step="10" value="250">
+            </div>
+
+            <div class="btn-group">
+                <button id="primaryBtn">Pause</button>
+                <button id="resetBtn">Reseed</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const couplingSlider = document.getElementById('couplingSlider');
+        const couplingVal = document.getElementById('couplingVal');
+        const baseFreqSlider = document.getElementById('baseFreqSlider');
+        const baseFreqVal = document.getElementById('baseFreqVal');
+        const countSlider = document.getElementById('countSlider');
+        const countVal = document.getElementById('countVal');
+        const spreadSlider = document.getElementById('spreadSlider');
+        const spreadVal = document.getElementById('spreadVal');
+        const orderParamDisplay = document.getElementById('orderParamDisplay');
+        const primaryBtn = document.getElementById('primaryBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let N = parseInt(countSlider.value);
+        let K = parseFloat(couplingSlider.value);
+        let BASE_FREQ = parseFloat(baseFreqSlider.value);
+        let omegaSpread = parseFloat(spreadSlider.value);
+        const dt = 0.016; 
+
+        let phases = [];
+        let naturalFreqs = [];
+        let baseColors = [];
+
+        let isRunning = true;
+        let R = 0.0;
+        let averagePhase = 0.0;
+
+        const CX = canvas.width / 2;
+        const CY = canvas.height / 2;
+        const RADIUS = 135;
+
+        function randomNormal() {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random(); 
+            while(v === 0) v = Math.random();
+            return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+
+        function initOscillators() {
+            phases = [];
+            naturalFreqs = [];
+            baseColors = [];
+
+            for (let i = 0; i < N; i++) {
+                phases.push(Math.random() * Math.PI * 2);
+                naturalFreqs.push(randomNormal() * omegaSpread);
+                
+                // Color maps to intrinsic deviation speed
+                const hue = 180 + (naturalFreqs[i] / 2) * 120;
+                baseColors.push(Math.max(0, Math.min(360, hue)));
+            }
+        }
+
+        function updateSimulation() {
+            let sumCos = 0, sumSin = 0;
+            for (let i = 0; i < N; i++) {
+                sumCos += Math.cos(phases[i]);
+                sumSin += Math.sin(phases[i]);
+            }
+
+            R = Math.sqrt(sumCos * sumCos + sumSin * sumSin) / N;
+            averagePhase = Math.atan2(sumSin, sumCos);
+
+            orderParamDisplay.textContent = R.toFixed(3);
+
+            let newPhases = new Float64Array(N);
+            for (let i = 0; i < N; i++) {
+                // Kuramoto differential engine + baseline forward driving velocity
+                const interaction = K * R * Math.sin(averagePhase - phases[i]);
+                newPhases[i] = phases[i] + (BASE_FREQ + naturalFreqs[i] + interaction) * dt;
+            }
+            phases = newPhases;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Core structural loop ring
+            ctx.beginPath();
+            ctx.arc(CX, CY, RADIUS, 0, Math.PI * 2);
+            ctx.strokeStyle = '#111827';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+
+            // 2. Order Parameter Tracking Vector
+            ctx.beginPath();
+            ctx.moveTo(CX, CY);
+            const vectorX = CX + Math.cos(averagePhase) * RADIUS * R;
+            const vectorY = CY + Math.sin(averagePhase) * RADIUS * R;
+            ctx.lineTo(vectorX, vectorY);
+            ctx.strokeStyle = `rgba(34, 211, 238, ${0.1 + R * 0.8})`;
+            ctx.lineWidth = 2 + R * 4;
+            ctx.stroke();
+
+            // Arrow head focus point
+            ctx.beginPath();
+            ctx.arc(vectorX, vectorY, 5 + R * 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#22d3ee';
+            ctx.fill();
+
+            // 3. Render pulsing, walking nodes
+            for (let i = 0; i < N; i++) {
+                const currentPhase = phases[i];
+                const x = CX + Math.cos(currentPhase) * RADIUS;
+                const y = CY + Math.sin(currentPhase) * RADIUS;
+
+                // Biological mapping: convert phase position directly into pulse amplitude
+                const pulse = (Math.sin(currentPhase) + 1) / 2; // Range: [0, 1]
+                
+                // Dynamic styling rules based on local phase
+                const size = 3.5 + pulse * 5.5; 
+                const lightness = 45 + pulse * 45; 
+                
+                ctx.beginPath();
+                ctx.arc(x, y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsl(${baseColors[i]}, 90%, ${lightness}%)`;
+                
+                // If synchronized globally, add glowing particle canvas overlays
+                if (R > 0.5) {
+                    ctx.shadowBlur = (R - 0.5) * 2 * pulse * 12;
+                    ctx.shadowColor = `hsl(${baseColors[i]}, 90%, 60%)`;
+                }
+                
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0; // Clear buffer
+        }
+
+        function loop() {
+            if (isRunning) {
+                updateSimulation();
+            }
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Controllers
+        couplingSlider.addEventListener('input', (e) => {
+            K = parseFloat(e.target.value);
+            couplingVal.textContent = K.toFixed(2);
+        });
+
+        baseFreqSlider.addEventListener('input', (e) => {
+            BASE_FREQ = parseFloat(e.target.value);
+            baseFreqVal.textContent = BASE_FREQ.toFixed(1);
+        });
+
+        spreadSlider.addEventListener('input', (e) => {
+            omegaSpread = parseFloat(e.target.value);
+            spreadVal.textContent = omegaSpread.toFixed(2);
+            initOscillators();
+        });
+
+        countSlider.addEventListener('input', (e) => {
+            N = parseInt(e.target.value);
+            countVal.textContent = N;
+            initOscillators();
+        });
+
+        primaryBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            primaryBtn.textContent = isRunning ? "Pause" : "Resume";
+            primaryBtn.style.backgroundColor = isRunning ? "#22d3ee" : "#10b981";
+            primaryBtn.style.color = isRunning ? "#030712" : "#f8fafc";
+        });
+
+        resetBtn.addEventListener('click', initOscillators);
+
+        initOscillators();
+        loop();
+    </script>
+</body>
+</html>

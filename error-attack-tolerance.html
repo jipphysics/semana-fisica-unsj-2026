@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Percolation: ER vs. BA Topology</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #06b6d4; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #1e2235;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #2e344e;
+        }
+
+        canvas {
+            background-color: #070a13;
+            border-radius: 12px;
+            border: 2px solid #2e344e;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 300px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-card {
+            background-color: #070a13;
+            padding: 10px;
+            border-radius: 8px;
+            border-top: 3px solid #3b82f6;
+            text-align: center;
+        }
+        .metric-card.gcc { border-top-color: #10b981; }
+
+        .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+        .metric-value { font-family: monospace; font-size: 1.2rem; font-weight: bold; color: #f1f5f9; margin-top: 2px; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            background: #0b0f19;
+            color: #f1f5f9;
+            border: 1px solid #2e344e;
+            padding: 8px;
+            border-radius: 6px;
+            accent-color: #06b6d4;
+            box-sizing: border-box;
+        }
+
+        input[type="range"] {
+            height: 6px;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            padding: 11px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #06b6d4;
+            color: #070a13;
+            margin-top: 5px;
+        }
+
+        button:hover { background-color: #22d3ee; }
+    </style>
+</head>
+<body>
+
+    <h1>Network Percolation & Robustness</h1>
+    <p>Simulate structural collapse under stress. Nodes belonging to the <b>Giant Connected Component (GCC)</b> glow emerald green, while fractured mini-islands turn purple.</p>
+
+    <div class="container">
+        <canvas id="percolationCanvas" width="500" height="420"></canvas>
+        
+        <div class="panel">
+            <div class="stats-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Active Nodes</div>
+                    <div id="activeNodesVal" class="metric-value">120</div>
+                </div>
+                <div class="metric-card gcc">
+                    <div class="metric-label">GCC Size</div>
+                    <div id="gccSizeVal" class="metric-value" style="color: #10b981;">120</div>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #2e344e; margin: 3px 0;">
+
+            <div class="slider-group">
+                <label class="slider-header">Network Architecture Topology</label>
+                <select id="topologySelect">
+                    <option value="ba">Barabási–Albert (Scale-Free)</option>
+                    <option value="er">Erdős–Rényi (Random Network)</option>
+                </select>
+            </div>
+
+            <div class="slider-group">
+                <label class="slider-header">Deconstruction Strategy</label>
+                <select id="strategySelect">
+                    <option value="random">Random Node Failure (Errors)</option>
+                    <option value="targeted">Targeted Hub Attack (Degree Centrality)</option>
+                </select>
+            </div>
+
+            <div class="slider-group" style="margin-top: 5px;">
+                <div class="slider-header">
+                    <label for="removalSlider"><b>Node Removal Fraction:</b></label>
+                    <span id="removalVal" style="font-family: monospace; color: #06b6d4; font-weight: bold;">0%</span>
+                </div>
+                <input type="range" id="removalSlider" min="0" max="90" step="1" value="0">
+            </div>
+
+            <button id="resetBtn">Regenerate Graph Architecture</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('percolationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI Binding Hooks
+        const topologySelect = document.getElementById('topologySelect');
+        const strategySelect = document.getElementById('strategySelect');
+        const removalSlider = document.getElementById('removalSlider');
+        const removalVal = document.getElementById('removalVal');
+        const activeNodesDisplay = document.getElementById('activeNodesVal');
+        const gccSizeDisplay = document.getElementById('gccSizeVal');
+        const resetBtn = document.getElementById('resetBtn');
+
+        const CX = canvas.width / 2;
+        const CY = canvas.height / 2;
+
+        // Structural Params
+        const N = 120;
+        let nodes = [];
+        let edges = [];
+        let removalFraction = 0.0;
+        
+        // Arrays storing node execution lists to avoid layout snapping variations
+        let randomOrderList = [];
+        let targetedOrderList = [];
+
+        // Rigid Force Physics Constants
+        const REPULSION = 1200;
+        const SOFTENING = 400;
+        const SPRING_K = 0.05;
+        const SPRING_LENGTH = 25;
+        const GRAVITY = 0.035;
+        const DAMPING = 0.72;
+        const MAX_VELOCITY = 3.0;
+
+        class NetworkNode {
+            constructor(id, x, y) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.initialDegree = 0;
+                this.active = true;
+                this.inGCC = true;
+            }
+        }
+
+        function buildNetwork() {
+            nodes = [];
+            edges = [];
+            
+            const topology = topologySelect.value;
+
+            if (topology === 'ba') {
+                // Generate Barabási-Albert scale-free network (m=2)
+                const m = 2;
+                for (let i = 0; i < m + 1; i++) {
+                    const angle = (i / (m + 1)) * Math.PI * 2;
+                    nodes.push(new NetworkNode(i, CX + Math.cos(angle)*25, CY + Math.sin(angle)*25));
+                }
+                for (let i = 0; i < m + 1; i++) {
+                    for (let j = i + 1; j < m + 1; j++) {
+                        edges.push({ source: nodes[i], target: nodes[j] });
+                    }
+                }
+
+                for (let i = m + 1; i < N; i++) {
+                    let totalDegree = 0;
+                    for (let j = 0; j < i; j++) totalDegree += edges.filter(e => e.source.id === j || e.target.id === j).length;
+
+                    let targets = [];
+                    while (targets.length < m) {
+                        let roll = Math.random() * totalDegree;
+                        let runningSum = 0;
+                        let selected = nodes[0];
+
+                        for (let j = 0; j < i; j++) {
+                            const deg = edges.filter(e => e.source.id === j || e.target.id === j).length;
+                            runningSum += deg;
+                            if (roll <= runningSum) {
+                                selected = nodes[j];
+                                break;
+                            }
+                        }
+                        if (!targets.includes(selected)) targets.push(selected);
+                    }
+
+                    const rx = CX + (Math.random() - 0.5) * 40;
+                    const ry = CY + (Math.random() - 0.5) * 40;
+                    const newNode = new NetworkNode(i, rx, ry);
+                    nodes.push(newNode);
+
+                    for (let t of targets) {
+                        edges.push({ source: newNode, target: t });
+                    }
+                }
+            } else {
+                // Generate Erdős-Rényi Random Network (Targeting <k> ≈ 4 to match BA)
+                for (let i = 0; i < N; i++) {
+                    const angle = (i / N) * Math.PI * 2;
+                    const rx = CX + Math.cos(angle) * 110 + (Math.random() - 0.5) * 30;
+                    const ry = CY + Math.sin(angle) * 110 + (Math.random() - 0.5) * 30;
+                    nodes.push(new NetworkNode(i, rx, ry));
+                }
+
+                const p = 4.0 / (N - 1);
+                for (let i = 0; i < N; i++) {
+                    for (let j = i + 1; j < N; j++) {
+                        if (Math.random() < p) {
+                            edges.push({ source: nodes[i], target: nodes[j] });
+                        }
+                    }
+                }
+            }
+
+            // Record initial structural degrees
+            for (let n of nodes) {
+                n.initialDegree = edges.filter(e => e.source.id === n.id || e.target.id === n.id).length;
+            }
+
+            // Create pre-sorted indexing matrices so moving the slider back and forth is deterministic
+            randomOrderList = [...nodes].map(n => n.id);
+            for (let i = randomOrderList.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [randomOrderList[i], randomOrderList[j]] = [randomOrderList[j], randomOrderList[i]];
+            }
+
+            targetedOrderList = [...nodes]
+                .sort((a, b) => b.initialDegree - a.initialDegree)
+                .map(n => n.id);
+
+            applyPercolation();
+        }
+
+        function applyPercolation() {
+            const deleteCount = Math.floor(removalFraction * N);
+            const strategy = strategySelect.value;
+            const orderList = (strategy === 'random') ? randomOrderList : targetedOrderList;
+
+            // Reset operational fields
+            for (let n of nodes) {
+                n.active = true;
+                n.inGCC = false;
+            }
+
+            // Flag targeted items as inactive
+            for (let i = 0; i < deleteCount; i++) {
+                const targetId = orderList[i];
+                nodes[targetId].active = false;
+            }
+
+            // Compute Giant Connected Component using Breadth-First Search (BFS)
+            let visited = new Set();
+            let components = [];
+
+            // Build an active adjacency list for speed
+            let adj = Array.from({ length: N }, () => []);
+            for (let e of edges) {
+                if (e.source.active && e.target.active) {
+                    adj[e.source.id].push(e.target.id);
+                    adj[e.target.id].push(e.source.id);
+                }
+            }
+
+            for (let i = 0; i < N; i++) {
+                if (!nodes[i].active || visited.has(i)) continue;
+
+                let comp = [];
+                let queue = [i];
+                visited.add(i);
+
+                while (queue.length > 0) {
+                    let curr = queue.shift();
+                    comp.push(curr);
+
+                    for (let nxt of adj[curr]) {
+                        if (!visited.has(nxt)) {
+                            visited.add(nxt);
+                            queue.push(nxt);
+                        }
+                    }
+                }
+                components.push(comp);
+            }
+
+            // Find the largest component size
+            let gcc = [];
+            let maxCount = 0;
+            for (let c of components) {
+                if (c.length > maxCount) {
+                    maxCount = c.length;
+                    gcc = c;
+                }
+            }
+
+            // Tag nodes inside the GCC
+            for (let id of gcc) {
+                nodes[id].inGCC = true;
+            }
+
+            activeNodesDisplay.textContent = N - deleteCount;
+            gccSizeDisplay.textContent = maxCount;
+        }
+
+        function updatePhysics() {
+            // Repulsion Physics (Only active nodes exert geometric pressure)
+            for (let i = 0; i < N; i++) {
+                const n1 = nodes[i];
+                if (!n1.active) continue;
+                for (let j = i + 1; j < N; j++) {
+                    const n2 = nodes[j];
+                    if (!n2.active) continue;
+
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distSq = dx * dx + dy * dy;
+                    const dist = Math.sqrt(distSq) + 0.1;
+
+                    const force = REPULSION / (distSq + SOFTENING);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+
+                    n1.vx -= fx; n1.vy -= fy;
+                    n2.vx += fx; n2.vy += fy;
+                }
+            }
+
+            // Attraction Physics Along Active Edge Connections
+            for (let edge of edges) {
+                if (!edge.source.active || !edge.target.active) continue;
+
+                const n1 = edge.source;
+                const n2 = edge.target;
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+
+                const displacement = dist - SPRING_LENGTH;
+                const force = displacement * SPRING_K;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                n1.vx += fx; n1.vy += fy;
+                n2.vx -= fx; n2.vy -= fy;
+            }
+
+            // Velocity Constraints integration
+            for (let n of nodes) {
+                n.vx += (CX - n.x) * GRAVITY;
+                n.vy += (CY - n.y) * GRAVITY;
+
+                n.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vx));
+                n.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vy));
+
+                n.x += n.vx;
+                n.y += n.vy;
+
+                n.vx *= DAMPING;
+                n.vy *= DAMPING;
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Draw Active Interconnections
+            ctx.lineWidth = 2.0;
+            for (let edge of edges) {
+                if (!edge.source.active || !edge.target.active) continue;
+                
+                // Color link bright emerald green if it connects two GCC components
+                if (edge.source.inGCC && edge.target.inGCC) {
+                    ctx.strokeStyle = "rgba(16, 185, 129, 0.35)";
+                } else {
+                    ctx.strokeStyle = "rgba(139, 92, 246, 0.25)";
+                }
+                ctx.beginPath();
+                ctx.moveTo(edge.source.x, edge.source.y);
+                ctx.lineTo(edge.target.x, edge.target.y);
+                ctx.stroke();
+            }
+
+            // 2. Draw Nodes
+            for (let n of nodes) {
+                if (!n.active) continue; // Inactive removed elements vanish completely
+
+                const radius = 4.0 + Math.sqrt(n.initialDegree) * 2.0;
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+
+                if (n.inGCC) {
+                    ctx.fillStyle = "#10b981"; // Emerald Green for core network component
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = "#10b981";
+                } else {
+                    ctx.fillStyle = "#a78bfa"; // Violet purple for fractured fragments
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.fill();
+                ctx.strokeStyle = "#070a13";
+                ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 0;
+                ctx.stroke();
+            }
+        }
+
+        function loop() {
+            updatePhysics();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // --- Controller Triggers ---
+        removalSlider.addEventListener('input', (e) => {
+            const pct = parseInt(e.target.value);
+            removalFraction = pct / 100;
+            removalVal.textContent = pct + "%";
+            applyPercolation();
+        });
+
+        topologySelect.addEventListener('change', buildNetwork);
+        strategySelect.addEventListener('change', applyPercolation);
+        resetBtn.addEventListener('click', buildNetwork);
+
+        // Core Boot
+        buildNetwork();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

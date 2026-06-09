@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barabási–Albert Model: Stable Force Layout</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #a855f7; font-weight: 600; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.95rem; text-align: center; max-width: 650px; line-height: 1.5; }
+
+        .container {
+            background-color: #1e2235;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: row;
+            gap: 24px;
+            align-items: center;
+            flex-wrap: wrap;
+            border: 1px solid #2e344e;
+        }
+
+        canvas {
+            background-color: #070a13;
+            border-radius: 12px;
+            border: 2px solid #2e344e;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            width: 280px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-card {
+            background-color: #070a13;
+            padding: 10px;
+            border-radius: 8px;
+            border-top: 3px solid #a855f7;
+            text-align: center;
+        }
+
+        .metric-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+        .metric-value { font-family: monospace; font-size: 1.2rem; font-weight: bold; color: #f1f5f9; margin-top: 2px; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            background: #0b0f19;
+            height: 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            accent-color: #a855f7;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            background-color: #2e344e;
+            color: #f1f5f9;
+        }
+
+        button:hover { background-color: #3e4668; }
+        #pauseBtn { background-color: #a855f7; color: #ffffff; }
+        #pauseBtn:hover { background-color: #c084fc; }
+    </style>
+</head>
+<body>
+
+    <h1>Stable Preferential Attachment</h1>
+    <p>An upgraded force-directed layout engine tracking the BA scale-free model. Node speeds are strictly capped and buffered to prevent chaotic jittering at high populations.</p>
+
+    <div class="container">
+        <canvas id="networkCanvas" width="500" height="400"></canvas>
+        
+        <div class="panel">
+            <div class="stats-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Nodes</div>
+                    <div id="nodesVal" class="metric-value">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Edges</div>
+                    <div id="edgesVal" class="metric-value">0</div>
+                </div>
+                <div class="metric-card" style="grid-column: span 2; border-top-color: #f59e0b;">
+                    <div class="metric-label">Max Hub Degree</div>
+                    <div id="maxDegreeVal" class="metric-value">0</div>
+                </div>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid #2e344e; margin: 5px 0;">
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="mSlider">Edges per New Node (m):</label>
+                    <span id="mVal" style="font-family: monospace;">2</span>
+                </div>
+                <input type="range" id="mSlider" min="1" max="5" step="1" value="2">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="speedSlider">Growth Interval:</label>
+                    <span id="speedVal" style="font-family: monospace;">450ms</span>
+                </div>
+                <input type="range" id="speedSlider" min="50" max="1000" step="50" value="450">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <label for="maxNodesSlider">Max Node Limit:</label>
+                    <span id="maxNodesVal" style="font-family: monospace;">150</span>
+                </div>
+                <input type="range" id="maxNodesSlider" min="50" max="300" step="10" value="150">
+            </div>
+
+            <div class="btn-group">
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Restart</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const mSlider = document.getElementById('mSlider');
+        const mVal = document.getElementById('mVal');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedVal = document.getElementById('speedVal');
+        const maxNodesSlider = document.getElementById('maxNodesSlider');
+        const maxNodesVal = document.getElementById('maxNodesVal');
+        const nodesDisplay = document.getElementById('nodesVal');
+        const edgesDisplay = document.getElementById('edgesVal');
+        const maxDegreeDisplay = document.getElementById('maxDegreeVal');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        const CX = canvas.width / 2;
+        const CY = canvas.height / 2;
+
+        let m = parseInt(mSlider.value);
+        let growthInterval = parseInt(speedSlider.value);
+        let maxNodes = parseInt(maxNodesSlider.value);
+        
+        let nodes = [];
+        let edges = [];
+        let lastGrowthTime = 0;
+        let isRunning = true;
+
+        // --- UPGRADED CONVERGENCE CONSTANTS ---
+        const REPULSION = 1000;
+        const SOFTENING = 300;      // Stops infinite forces when nodes spawn closely
+        const SPRING_K = 0.05;
+        const SPRING_LENGTH = 30;
+        const GRAVITY = 0.025;      // Holds the whole cluster stable in center
+        const DAMPING = 0.72;       // Lower value drops kinetic energy fast to eliminate shaking
+        const MAX_VELOCITY = 3.5;    // Hard speed limit cap per frame update
+
+        class Node {
+            constructor(id, x, y) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.degree = 0;
+            }
+        }
+
+        function initNetwork() {
+            nodes = [];
+            edges = [];
+            
+            const seedCount = m + 1;
+            for (let i = 0; i < seedCount; i++) {
+                const angle = (i / seedCount) * Math.PI * 2;
+                const x = CX + Math.cos(angle) * 20;
+                const y = CY + Math.sin(angle) * 20;
+                nodes.push(new Node(i, x, y));
+            }
+
+            for (let i = 0; i < seedCount; i++) {
+                for (let j = i + 1; j < seedCount; j++) {
+                    edges.push({ source: nodes[i], target: nodes[j] });
+                    nodes[i].degree++;
+                    nodes[j].degree++;
+                }
+            }
+            lastGrowthTime = performance.now();
+        }
+
+        function addNodePreferential() {
+            if (nodes.length >= maxNodes) return;
+
+            let totalDegree = 0;
+            for (let n of nodes) totalDegree += n.degree;
+
+            const newNodeId = nodes.length;
+            // Spawn with a slight random offset from center to allow repulsion to choose a vector direction
+            const rx = CX + (Math.random() - 0.5) * 20;
+            const ry = CY + (Math.random() - 0.5) * 20;
+            const newNode = new Node(newNodeId, rx, ry);
+
+            let targets = [];
+            while (targets.length < m && targets.length < nodes.length) {
+                let currentSum = 0;
+                const roll = Math.random() * totalDegree;
+                let selectedNode = null;
+
+                for (let n of nodes) {
+                    currentSum += n.degree;
+                    if (roll <= currentSum) {
+                        selectedNode = n;
+                        break;
+                    }
+                }
+
+                if (selectedNode && !targets.includes(selectedNode)) {
+                    targets.push(selectedNode);
+                }
+            }
+
+            nodes.push(newNode);
+            for (let targetNode of targets) {
+                edges.push({ source: newNode, target: targetNode });
+                newNode.degree++;
+                targetNode.degree++;
+            }
+        }
+
+        function updatePhysics() {
+            // Repulsion Step
+            for (let i = 0; i < nodes.length; i++) {
+                const n1 = nodes[i];
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const n2 = nodes[j];
+                    const dx = n2.x - n1.x;
+                    const dy = n2.y - n1.y;
+                    const distSq = dx * dx + dy * dy;
+                    const dist = Math.sqrt(distSq) + 0.1;
+
+                    // Softened denominator isolates nodes from chaotic spikes
+                    const force = REPULSION / (distSq + SOFTENING);
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    
+                    n1.vx -= fx; n1.vy -= fy;
+                    n2.vx += fx; n2.vy += fy;
+                }
+            }
+
+            // Attraction Step
+            for (let edge of edges) {
+                const n1 = edge.source;
+                const n2 = edge.target;
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+                
+                const displacement = dist - SPRING_LENGTH;
+                const force = displacement * SPRING_K;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                n1.vx += fx; n1.vy += fy;
+                n2.vx -= fx; n2.vy -= fy;
+            }
+
+            // Assembly Integration & Velocity Cap Enforcement
+            let currentMaxDegree = 0;
+            for (let n of nodes) {
+                if (n.degree > currentMaxDegree) currentMaxDegree = n.degree;
+
+                n.vx += (CX - n.x) * GRAVITY;
+                n.vy += (CY - n.y) * GRAVITY;
+
+                // Apply velocity ceiling to prevent high-speed frame explosions
+                n.vx = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vx));
+                n.vy = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n.vy));
+
+                n.x += n.vx;
+                n.y += n.vy;
+                
+                n.vx *= DAMPING;
+                n.vy *= DAMPING;
+            }
+
+            nodesDisplay.textContent = nodes.length;
+            edgesDisplay.textContent = edges.length;
+            maxDegreeDisplay.textContent = currentMaxDegree;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // UPGRADED LINK RENDERING: Thicker (2.5px) and higher opacity
+            ctx.strokeStyle = "rgba(168, 85, 247, 0.38)";
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            for (let edge of edges) {
+                ctx.moveTo(edge.source.x, edge.source.y);
+                ctx.lineTo(edge.target.x, edge.target.y);
+            }
+            ctx.stroke();
+
+            // Node Points Rendering
+            for (let n of nodes) {
+                const radius = 4 + Math.sqrt(n.degree) * 2.2;
+                
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+
+                if (n.degree > 12) {
+                    ctx.fillStyle = "#f59e0b";
+                    ctx.shadowBlur = Math.min(20, n.degree);
+                    ctx.shadowColor = "#f59e0b";
+                } else {
+                    ctx.fillStyle = "#c084fc";
+                    ctx.shadowBlur = 0;
+                }
+                
+                ctx.fill();
+                ctx.strokeStyle = "#070a13";
+                ctx.lineWidth = 1.8;
+                ctx.shadowBlur = 0; 
+                ctx.stroke();
+            }
+        }
+
+        function loop(timestamp) {
+            if (isRunning) {
+                if (timestamp - lastGrowthTime > growthInterval) {
+                    addNodePreferential();
+                    lastGrowthTime = timestamp;
+                }
+                updatePhysics();
+            }
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        mSlider.addEventListener('input', (e) => {
+            m = parseInt(e.target.value);
+            mVal.textContent = m;
+            initNetwork();
+        });
+
+        speedSlider.addEventListener('input', (e) => {
+            growthInterval = parseInt(e.target.value);
+            speedVal.textContent = growthInterval + "ms";
+        });
+
+        maxNodesSlider.addEventListener('input', (e) => {
+            maxNodes = parseInt(e.target.value);
+            maxNodesVal.textContent = maxNodes;
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            pauseBtn.textContent = isRunning ? "Pause" : "Resume";
+            pauseBtn.style.backgroundColor = isRunning ? "#a855f7" : "#10b981";
+        });
+
+        resetBtn.addEventListener('click', initNetwork);
+
+        initNetwork();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ant Foraging: Visual Lock & Noise Fix</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0b0c10;
+            color: #c5c6c7;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #4ee5b6; }
+        p { margin-top: 0; color: #94a3b8; font-size: 0.9rem; text-align: center; max-width: 650px; line-height: 1.4; }
+
+        .container {
+            background-color: #1f2833;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        canvas {
+            border: 4px solid #45f3ff33;
+            border-radius: 6px;
+            background-color: #0b0c10;
+            image-rendering: pixelated;
+            cursor: crosshair;
+            width: 600px; 
+            height: 400px;
+        }
+
+        .controls {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .slider-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .slider-group label { flex: 1; font-size: 0.85rem; font-weight: 500; }
+        .slider-group input { flex: 2; accent-color: #4ee5b6; }
+        .slider-value { width: 50px; text-align: right; font-family: monospace; font-size: 0.85rem; }
+
+        .btn-group { display: flex; gap: 10px; width: 100%; margin-top: 5px; }
+        button {
+            flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s; background-color: #0b0c10; color: #c5c6c7; border: 1px solid #45f3ff33;
+        }
+        button:hover { background-color: #1f2833; border-color: #4ee5b6; }
+        #pauseBtn { background-color: #4ee5b6; color: #0b0c10; border: none; }
+        #pauseBtn:hover { background-color: #3bc79b; }
+        
+        .legend {
+            display: flex;
+            gap: 15px;
+            font-size: 0.8rem;
+            margin-top: -5px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot { width: 10px; height: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+    <h1>Ant Foraging: Proximity Target Lock</h1>
+    <p>Ants now use <b>Visual Food Detection</b> within a short radius, overriding trailing behavior to pull themselves directly onto the food mass. Walking paths include a continuous noise wobble.</p>
+
+    <div class="container">
+        <canvas id="simCanvas" width="300" height="200"></canvas>
+        
+        <div class="legend">
+            <div class="legend-item"><div class="dot" style="background: #e0e0e0;"></div> Scout / Tracker</div>
+            <div class="legend-item"><div class="dot" style="background: #4fc3f7;"></div> Tired (Heading Home)</div>
+            <div class="legend-item"><div class="dot" style="background: #00ff64;"></div> Collector (Target Locked / Has Food)</div>
+        </div>
+
+        <div class="controls">
+            <div class="slider-group">
+                <label for="visionSlider">Food Detection Range:</label>
+                <input type="range" id="visionSlider" min="5" max="30" step="1" value="18">
+                <span id="visionValue" class="slider-value">18px</span>
+            </div>
+
+            <div class="slider-group">
+                <label for="noiseSlider">Walk Noise (Wobble):</label>
+                <input type="range" id="noiseSlider" min="0.1" max="1.5" step="0.05" value="0.5">
+                <span id="noiseValue" class="slider-value">0.50</span>
+            </div>
+
+            <div class="btn-group">
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Restart Sim</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const visionSlider = document.getElementById('visionSlider');
+        const visionValue = document.getElementById('visionValue');
+        const noiseSlider = document.getElementById('noiseSlider');
+        const noiseValue = document.getElementById('noiseValue');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+        const NUM_ANTS = 1800;
+        
+        const NEST = { x: 50, y: HEIGHT / 2, radius: 12 };
+        let foodSources = [];
+
+        // Interactive parameters
+        let FOOD_VISION_DIST = parseFloat(visionSlider.value);
+        let WANDER_NOISE = parseFloat(noiseSlider.value);
+        const EVAP_RATE = 0.993;
+        const MAX_ENERGY = 500;
+
+        // Kinematics
+        const MOVE_SPEED = 0.9;
+        const TURN_SPEED = 0.35;
+        const SENSE_DIST = 8;
+        const SENSE_ANGLE = 45 * Math.PI / 180;
+
+        let pheromoneToFood = new Float32Array(WIDTH * HEIGHT);
+        let pheromoneToHome = new Float32Array(WIDTH * HEIGHT);
+        let ants = [];
+
+        let isRunning = true;
+        const imgData = ctx.createImageData(WIDTH, HEIGHT);
+        const data = imgData.data;
+
+        const STATE_LOOKING_FOR_FOOD = 0;
+        const STATE_TIRED = 1;
+        const STATE_RETURNING_FOOD = 2;
+
+        class Ant {
+            constructor() {
+                this.x = NEST.x;
+                this.y = NEST.y;
+                this.angle = Math.random() * Math.PI * 2;
+                this.state = STATE_LOOKING_FOR_FOOD;
+                this.energy = MAX_ENERGY;
+            }
+        }
+
+        function initSimulation() {
+            pheromoneToFood.fill(0);
+            pheromoneToHome.fill(0);
+            ants = [];
+            
+            foodSources = [
+                { x: WIDTH - 60, y: HEIGHT / 2, maxRadius: 14, maxAmount: 1500, amount: 1500 }
+            ];
+
+            for (let i = 0; i < NUM_ANTS; i++) {
+                ants.push(new Ant());
+            }
+        }
+
+        function sense(ant, angleOffset, pheromoneArray) {
+            const senseAngle = ant.angle + angleOffset;
+            const sx = Math.floor(ant.x + Math.cos(senseAngle) * SENSE_DIST);
+            const sy = Math.floor(ant.y + Math.sin(senseAngle) * SENSE_DIST);
+            
+            if (sx < 0 || sx >= WIDTH || sy < 0 || sy >= HEIGHT) return 0;
+            return pheromoneArray[sy * WIDTH + sx];
+        }
+
+        function depositPheromone(x, y, pheromoneArray, strength) {
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            if (ix >= 0 && ix < WIDTH && iy >= 0 && iy < HEIGHT) {
+                const idx = iy * WIDTH + ix;
+                pheromoneArray[idx] = Math.max(pheromoneArray[idx], strength);
+            }
+        }
+
+        function updateAnts() {
+            for (let ant of ants) {
+                const dxNest = ant.x - NEST.x;
+                const dyNest = ant.y - NEST.y;
+                const distNest = Math.sqrt(dxNest * dxNest + dyNest * dyNest);
+
+                // Reached Nest
+                if (distNest < NEST.radius) {
+                    ant.energy = MAX_ENERGY;
+                    if (ant.state === STATE_RETURNING_FOOD || ant.state === STATE_TIRED) {
+                        ant.state = STATE_LOOKING_FOR_FOOD;
+                        ant.angle += Math.PI; // Spin outward
+                    }
+                }
+
+                switch (ant.state) {
+                    case STATE_LOOKING_FOR_FOOD:
+                        // --- 1. PRIORITY ONE: Direct Vision / Proximity Target Lock ---
+                        let targetFood = null;
+                        let closestFoodDist = FOOD_VISION_DIST;
+
+                        for (let f of foodSources) {
+                            if (f.amount <= 0) continue;
+                            const dxF = ant.x - f.x; const dyF = ant.y - f.y;
+                            const distF = Math.sqrt(dxF * dxF + dyF * dyF);
+                            const currentRadius = f.maxRadius * (f.amount / f.maxAmount);
+
+                            // See if it falls within detection range
+                            if (distF < closestFoodDist + currentRadius) {
+                                targetFood = f;
+                                closestFoodDist = distF;
+                            }
+                        }
+
+                        if (targetFood) {
+                            // Visual steer toward center of food mass
+                            let angleToFood = Math.atan2(targetFood.y - ant.y, targetFood.x - ant.x);
+                            let angleDiff = Math.atan2(Math.sin(angleToFood - ant.angle), Math.cos(angleToFood - ant.angle));
+                            ant.angle += Math.max(-TURN_SPEED, Math.min(TURN_SPEED, angleDiff));
+
+                            // Physical Harvest Trigger
+                            const currentRadius = targetFood.maxRadius * (targetFood.amount / targetFood.maxAmount);
+                            if (closestFoodDist < Math.max(3, currentRadius)) {
+                                targetFood.amount--;
+                                ant.state = STATE_RETURNING_FOOD;
+                                ant.angle += Math.PI; // Direct U-turn home
+                            }
+                        } else {
+                            // --- 2. PRIORITY TWO: Scent Trailing ---
+                            let fwdF = sense(ant, 0, pheromoneToFood);
+                            let leftF = sense(ant, -SENSE_ANGLE, pheromoneToFood);
+                            let rightF = sense(ant, SENSE_ANGLE, pheromoneToFood);
+
+                            if (fwdF > 0.02 || leftF > 0.02 || rightF > 0.02) {
+                                if (fwdF > leftF && fwdF > rightF) {} 
+                                else if (leftF > rightF) ant.angle -= TURN_SPEED;
+                                else ant.angle += TURN_SPEED;
+                            } else {
+                                // Default option: Empty exploration walk
+                                // No action, base path continues
+                            }
+                        }
+
+                        // Apply continuous systemic wobble noise to prevent unnatural linear stacking
+                        ant.angle += (Math.random() - 0.5) * WANDER_NOISE;
+
+                        // Continuous home breadcrumbs
+                        let homeStrength = ant.energy / MAX_ENERGY;
+                        depositPheromone(ant.x, ant.y, pheromoneToHome, homeStrength);
+
+                        ant.energy--;
+                        if (ant.energy <= 0 && ant.state === STATE_LOOKING_FOR_FOOD) {
+                            ant.state = STATE_TIRED;
+                        }
+                        break;
+
+                    case STATE_TIRED:
+                    case STATE_RETURNING_FOOD:
+                        // --- 3. RETURN MODE: Pure localized gradient climb via Home network ---
+                        let fwdH = sense(ant, 0, pheromoneToHome);
+                        let leftH = sense(ant, -SENSE_ANGLE, pheromoneToHome);
+                        let rightH = sense(ant, SENSE_ANGLE, pheromoneToHome);
+
+                        if (fwdH > 0.005 || leftH > 0.005 || rightH > 0.005) {
+                            if (fwdH > leftH && fwdH > rightH) {} 
+                            else if (leftH > rightH) ant.angle -= TURN_SPEED;
+                            else ant.angle += TURN_SPEED;
+                        } else {
+                            // Lost trail buffer search
+                            ant.angle += (Math.random() - 0.5) * 0.5;
+                        }
+
+                        // Return wobble (smoother and narrower so they run paths efficiently)
+                        ant.angle += (Math.random() - 0.5) * 0.15;
+
+                        if (ant.state === STATE_RETURNING_FOOD) {
+                            depositPheromone(ant.x, ant.y, pheromoneToFood, 1.0);
+                        }
+                        break;
+                }
+
+                // Step Position
+                ant.x += Math.cos(ant.angle) * MOVE_SPEED;
+                ant.y += Math.sin(ant.angle) * MOVE_SPEED;
+
+                // Screen Clamping
+                if (ant.x < 1 || ant.x >= WIDTH - 1 || ant.y < 1 || ant.y >= HEIGHT - 1) {
+                    ant.x = Math.max(1, Math.min(WIDTH - 2, ant.x));
+                    ant.y = Math.max(1, Math.min(HEIGHT - 2, ant.y));
+                    ant.angle += Math.PI;
+                }
+            }
+        }
+
+        function updatePheromones() {
+            for (let i = 0; i < pheromoneToFood.length; i++) {
+                pheromoneToFood[i] *= EVAP_RATE;
+                pheromoneToHome[i] *= EVAP_RATE;
+            }
+            
+            // Nest core serves as the permanent ceiling anchor for home vectors
+            for (let y = Math.floor(NEST.y - NEST.radius); y <= Math.ceil(NEST.y + NEST.radius); y++) {
+                for (let x = Math.floor(NEST.x - NEST.radius); x <= Math.ceil(NEST.x + NEST.radius); x++) {
+                    if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+                        const dx = x - NEST.x; const dy = y - NEST.y;
+                        if (dx*dx + dy*dy < NEST.radius * NEST.radius) {
+                            pheromoneToHome[y * WIDTH + x] = 1.0;
+                        }
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            for (let i = 0; i < WIDTH * HEIGHT; i++) {
+                const px = i % WIDTH; const py = Math.floor(i / WIDTH);
+                const idx = i * 4;
+
+                let r = 11, g = 12, b = 16; 
+
+                const pFood = pheromoneToFood[i];
+                const pHome = pheromoneToHome[i];
+
+                r += pFood * 200; g += pFood * 90;  // Orange Food Trails
+                b += pHome * 160; r += pHome * 30;  // Blue Home Trails
+
+                // Nest Render
+                const dxN = px - NEST.x; const dyN = py - NEST.y;
+                if (Math.sqrt(dxN*dxN + dyN*dyN) < NEST.radius) {
+                    r = 31; g = 147; b = 255;
+                }
+
+                // Food Render
+                for (let f of foodSources) {
+                    if (f.amount <= 0) continue;
+                    const dxF = px - f.x; const dyF = py - f.y;
+                    const currentRadius = f.maxRadius * (f.amount / f.maxAmount);
+
+                    if (Math.sqrt(dxF*dxF + dyF*dyF) < currentRadius) {
+                        r = 78; g = 229; b = 182;
+                    }
+                }
+
+                data[idx] = Math.min(255, r);
+                data[idx + 1] = Math.min(255, g);
+                data[idx + 2] = Math.min(255, b);
+                data[idx + 3] = 255;
+            }
+
+            // Draw Ants
+            for (let ant of ants) {
+                const idx = (Math.floor(ant.y) * WIDTH + Math.floor(ant.x)) * 4;
+                
+                let r = 197, g = 198, b = 199; 
+                if (ant.state === STATE_TIRED) {
+                    r = 79; g = 195; b = 247;  
+                } else if (ant.state === STATE_RETURNING_FOOD) {
+                    r = 0; g = 255; b = 100;   
+                }
+
+                data[idx] = r; data[idx + 1] = g; data[idx + 2] = b;
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        function loop() {
+            if (isRunning) {
+                updateAnts();
+                updatePheromones();
+                draw();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = (e.clientX - rect.left) * (WIDTH / rect.width);
+            const clickY = (e.clientY - rect.top) * (HEIGHT / rect.height);
+            
+            foodSources.push({
+                x: clickX, y: clickY,
+                maxRadius: 14, maxAmount: 1200, amount: 1200
+            });
+        });
+
+        visionSlider.addEventListener('input', (e) => {
+            FOOD_VISION_DIST = parseFloat(e.target.value);
+            visionValue.textContent = FOOD_VISION_DIST + "px";
+        });
+
+        noiseSlider.addEventListener('input', (e) => {
+            WANDER_NOISE = parseFloat(e.target.value);
+            noiseValue.textContent = WANDER_NOISE.toFixed(2);
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            pauseBtn.textContent = isRunning ? "Pause" : "Start";
+            pauseBtn.style.backgroundColor = isRunning ? "#4ee5b6" : "#fbbf24";
+        });
+
+        resetBtn.addEventListener('click', initSimulation);
+
+        initSimulation();
+        loop();
+    </script>
+</body>
+</html>
